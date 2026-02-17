@@ -1,7 +1,12 @@
 from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, ToolMessage, SystemMessage
 from dotenv import load_dotenv
+import json
 import os
+
+
+from TurnAction import TurnAction
+from ResponseAction import ResponseAction
 
 load_dotenv()
 
@@ -19,9 +24,7 @@ class OllamaPlayer:
         # initialize llm and bind tools
         self.llm = ChatOllama(base_url=f"http://{server_ip}:{server_port}",
                               model=model_name)
-
-        self.messages = [
-            SystemMessage("""GAME: Coup
+        self.rules = SystemMessage("""GAME: Coup
 
         OBJECTIVE:
         Be the last remaining player with at least one influence.
@@ -89,24 +92,47 @@ class OllamaPlayer:
         - When a player loses influence, the chosen card is revealed face up and remains visible for the rest of the game.
         - Revealed cards are not returned to the deck.
         - All revealed cards are public information.
-        """)]
+        """)
                           
-                          
-                          
-    def set_cards(self,card1, card2):
-        self.card1 = card1
-        self.card2 = card2
-                       
-        
-        
-    def update(self):
-        pass
     
+    def take_turn(self, player_info, table_info):
+        message = [self.rules, HumanMessage(f"It is your turn. Your hand: {player_info}, game state: {table_info}. Respond with only a json containing the action_name (all lowercase) and the target_player if applicable, otherwise target_player should be None.")]
+        response = self.llm.invoke(message)
+        try:
+            json_action = json.loads(response.content)
+            print(json_action)
+            action_name = json_action['action_name']
+            target_player = json_action.get('target_player', None)
+            action = TurnAction(self.name, action_name, target_player)
+            return action
+        except:
+            print("Error")
+
     
-    def take_turn(self, n_coins, card1, card2):
-        self.messages.append(HumanMessage("It is your turn. you have {n_coins} coins, {card1} and {card2}. what would you like to do?"))
-        response = self.llm.invoke(self.messages)
+    def lose_card(self, player_info, table_info):
+        message = [self.rules, HumanMessage(f"You are losing a influence card. You may select which card to give up. Your hand: {player_info}, game state:{table_info}. Respond with only the name of the card to give up.")]
+        response = self.llm.invoke(message)
         return response.content
+            
     
+    def exchange(self, player_info, table_info, cards_drawn):
+        message = [self.rules, HumanMessage(f"You are using an Ambassador to exchange cards. Your hand: {player_info}, game state: {table_info}. The cards you have drawn: {cards_drawn}. Choose which cards to keep and which to discard in accordance with the rules. Return only a JSON containing keep: python list of cards to keep, and discard: python list of cards to discard.")]
+        response = self.llm.invoke(message)
+        try:
+            json_exchange = json.loads(response.content)
+            print(json_exchange)
+            keep = json_exchange['keep']
+            discard = json_exchange['discard']
+            return keep, discard
+        except:
+            print("Error")
+            
     
-    
+    def game_update(self, player_info, table_info, action):
+        message = [self.rules, HumanMessage(f"An opponent is taking their turn and you need to decide if you want to block or challenge. Your hand: {player_info}, game state: {table_info}, Action Information - {action.summary}. Respond with only the string block, challenge, or none")]
+        response = self.llm.invoke(message)
+        print(response)
+        resp = ResponseAction(self.name, action, response)
+        return resp
+        
+        

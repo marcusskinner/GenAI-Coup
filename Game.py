@@ -1,60 +1,67 @@
-import random
-
-DECK = ['Duke','Duke','Duke',
-        'Captain','Captain','Captain',
-        'Ambassador','Ambassador','Ambassador',
-        'Contessa','Contessa','Contessa',
-        'Assassin','Assassin','Assassin']
+from GameState import GameState
+from TurnAction import TurnAction
 
 class Game:
     
     def __init__(self, players):
-        # shuffle the deck
-        random.shuffle(DECK)
+        self.game = GameState(players)        
         
-        # dictionary of player info
-        self.player_info = {}
-        self.num_players = len(players)
-        
-        # iterate through players dealing cards
-        for p in players:
-            card1 = DECK.pop()
-            card2 = DECK.pop()
-            p.set_cards(card1, card2)
-            # add player info to the dictionary
-            self.player_info.put(p.name,{'cards':[p.card1, p.card2], 
-                                         'coins':2,
-                                         'alive':True})
-            
-        # queue of active player for tracking turns
-        self.play_q = self.player_info.keys()
-        
-        
+    
+
     def take_turn(self):
-        # get player from the queue
-        player = self.play_q.pop()
+        # get player info from game state
+        curr_player = self.game.next_player()
         
-        # check that the player is alive at the start of their turn
-        if self.player_info[player.name]['alive']:
-            
-            # TODO: figure out how to retry a few times if action invalid
-            # player takes their action
-            action = player.take_turn()
-            if self.validate_action(action):
-                pass
-                # Call function for action
+        # have current player take their turn
+        action = curr_player.take_turn(self.game.player_info[curr_player], self.game.public_info)
+        
+        # check validity of action
+        if self.valid_action(action):
+            # give other players a chance to respond
+            for p in self.game.play_q:
+                if p is not curr_player: 
+                    resp = p.game_update(self.game.player_info[p], self.game.public_info, action)
                 
-                
-            else:
-                pass
-                #Handle what to do if the action is not valid
-          
-            self.play_q.insert(0, player)
+        
+        else:
+            # penalize invalid actions
+            # action validity handled in player class
+            #TODO figure out alternate options for this
+            self.game.lose_card(curr_player)
+            # somehow inform player they have been penalized
         
 
-    def validate_action(self, action):
-        pass
+
+
+
+
+    def valid_action(self, action):
+        # ensure it is a TurnAction
+        if not isinstance(action, TurnAction):
+            False
+        
+        # get the information on the current player
+        curr_player_info = self.game.player_info[self.current_player]
+        coins = curr_player_info['coins']
+        action_name = action.action_name
+        
+        # if over 10 coins, must coup
+        if coins >= 10 and action_name != 'coup':
+            return False
+        else:
+            # must have at least 7 coins for coup
+            if coins < 7 and action_name =='coup': 
+                return False
+            # must have at least 3 coins to assassinate
+            elif coins < 3 and action_name == 'assassinate':
+                return False
+            else:
+                # all other options should be valid
+                return True
+        
     
+    def validate_resp(self,action, resp):
+        pass
     
     
     
