@@ -1,11 +1,9 @@
 import random
 import numpy as np
+from collections import Counter
 
-DECK = ['Duke','Duke','Duke',
-        'Captain','Captain','Captain',
-        'Ambassador','Ambassador','Ambassador',
-        'Contessa','Contessa','Contessa',
-        'Assassin','Assassin','Assassin']
+CARDS = ['Duke','Captain', 'Ambassador','Contessa', 'Assassin']
+DECK = CARDS+CARDS+CARDS
 
 
 # handle the deck, players, cards, and coins
@@ -16,8 +14,10 @@ class GameState:
         self.num_players = len(players)
         self.game_over = False
         self.winner = None
+        self.log = []
         
         # create and shuffle deck
+        self.cards = CARDS.copy()
         self.deck = DECK.copy()
         self.shuffle_deck()
         
@@ -69,6 +69,7 @@ class GameState:
         self.player_info[player]['alive'] = False
         self.public_info[player.name]['alive'] = False
         
+        print(player.name, "has lost both cards and is out of the game.")
         if len(self.play_q) == 1:
             self.game_over = True
             self.winner = self.play_q[0]
@@ -84,7 +85,7 @@ class GameState:
         # if two cards are left, player chooses which card to lose
         if len(player_cards) > 1:
             # should be a 0 or 1 for index of card, if not default to 0
-            card_idx = player.lose_card(self.game.player_info[player], self.game.public_info)
+            card_idx = player.lose_card(self.player_info[player],self.public_info)
             if card_idx not in [0,1]:
                 card_idx = 0
         
@@ -116,7 +117,7 @@ class GameState:
         
         # get a new card from the deck
         new_card = self.deck.pop()
-        cards = cards.append(new_card)
+        cards.append(new_card)
         
         # update player info
         self.player_info[player]['facedown'] = cards
@@ -131,35 +132,26 @@ class GameState:
         c2 = self.deck.pop()
         drawn = [c1, c2]
         
-        keep, discard = player.exchange(self.game.player_info[player], 
-                                        self.game.public_info, 
+        keep = player.exchange(self.player_info[player], 
+                                        self.public_info, 
                                         drawn)
-
-        # check that player responded with lists
-        if isinstance(keep,list) and isinstance(discard,list):
-            # ensure the player selected valid cards to keep and discard
-            # the cards provided should be the same as the cards returned
-            initial_cards = sorted(cards + drawn)
-            final_cards = sorted(keep + discard)
-            
-            # the player should keep the same number of cards as in their hand
-            if len(cards) == len(keep) and initial_cards == final_cards:
-                # player gets to keep the cards they selected
-                self.player_info[player]['facedown'] = keep
-                self.deck = self.deck+discard
-                self.shuffle_deck()
-            else: 
-                error = True
-        else:
-            error = True
-            
-        # if exchange failed, return to original state
-        if error:
-            # fail to exchange, return cards to deck, shuffle
-            self.player_info[player]['facedown'] = cards
-            self.deck = self.deck+cards
-            self.shuffle_deck()           
-            
+        if keep is not None:
+            # check that player responded with lists and is keeping the same num
+            if isinstance(keep,list) and isinstance(keep[0], str) and len(keep) == len(cards):
+                options = cards+drawn
+                if Counter(keep)-Counter(options) == Counter():
+                    # determine which cards to discard
+                    discard = list((Counter(options) - Counter(keep)).elements()) 
+                    # player gets to keep the cards they selected
+                    self.player_info[player]['facedown'] = keep
+                    self.deck = self.deck+discard
+                    self.shuffle_deck()
+                    return
+        print("Failed to exchange due to incorrect input")
+        # fail to exchange, return cards to deck, shuffle
+        self.player_info[player]['facedown'] = cards
+        self.deck = self.deck+cards
+        self.shuffle_deck()           
             
     
     def change_coins(self, player, n_coins):
@@ -184,3 +176,9 @@ class GameState:
         return np.abs(n_coins)
     
 
+    # get player object from player name
+    def get_player(self, player_name):
+        for p in self.play_q:
+            if p.name == player_name:
+                return p
+        return None

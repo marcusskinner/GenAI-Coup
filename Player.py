@@ -10,8 +10,6 @@ class Player:
         self.name = player_name
         
         
-        
-        
     def take_turn(self, player_info, table_info):
         pass
     
@@ -22,7 +20,7 @@ class Player:
         pass
     
     
-    def game_update(player_info, table_table, action):
+    def respond(player_info, table_table, action):
         pass
     
     

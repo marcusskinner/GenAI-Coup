@@ -12,7 +12,7 @@ load_dotenv()
 
 
 class OllamaPlayer:
-    def __init__(self, player_name):
+    def __init__(self, player_name, personality="None"):
         # set name
         self.name = player_name
         
@@ -24,10 +24,15 @@ class OllamaPlayer:
         # initialize llm and bind tools
         self.llm = ChatOllama(base_url=f"http://{server_ip}:{server_port}",
                               model=model_name)
-        self.rules = SystemMessage("""GAME: Coup
+        self.personality = SystemMessage(personality)
+        self.rules = SystemMessage("""
+        GAME: Coup
 
         OBJECTIVE:
         Be the last remaining player with at least one influence.
+        
+        If you attempt to do something on your turn that you are not able to do, 
+        you will lose an influence card. 
         
         INFLUENCE:
         Each player starts with 2 hidden influence cards.
@@ -92,47 +97,74 @@ class OllamaPlayer:
         - When a player loses influence, the chosen card is revealed face up and remains visible for the rest of the game.
         - Revealed cards are not returned to the deck.
         - All revealed cards are public information.
+        
         """)
                           
     
     def take_turn(self, player_info, table_info):
-        message = [self.rules, HumanMessage(f"It is your turn. Your hand: {player_info}, game state: {table_info}. Respond with only a json containing the action_name (all lowercase) and the target_player if applicable, otherwise target_player should be None.")]
+        message = [self.personality, self.rules, HumanMessage(f"It is your turn. Your hand: {player_info}, game state: {table_info}. Respond with only a json containing the action_name (all lowercase) and the target_player if the card you are playing is targeting an opponent, otherwise target_player should be None. The name of the Action options are: 'income', 'foreign aid', 'coup', 'tax', 'steal', 'exchange'.")]
         response = self.llm.invoke(message)
         try:
             json_action = json.loads(response.content)
-            print(json_action)
-            action_name = json_action['action_name']
+            a_name = json_action['action_name']
+            a_name = a_name.lower()
             target_player = json_action.get('target_player', None)
-            action = TurnAction(self.name, action_name, target_player)
+            if a_name in ['income', 'foreign aid','coup', 'tax','assassinate','steal', 'exchange' ]:
+                action = TurnAction(self.name, a_name, target_player)
+            elif 'ambassador' in a_name or 'exchange' in a_name:
+                action = TurnAction(self.name, 'exchange', target_player)
+            elif 'assassin' in a_name:
+                action = TurnAction(self.name, 'assassinate',target_player)
+            elif 'captain' in a_name or 'steal' in a_name:
+                action = TurnAction(self.name, 'steal', target_player)
+            elif 'foreign' in a_name:
+                action = TurnAction(self.name, 'foreign aid', target_player)
+            elif 'duke' in a_name or 'tax' in a_name:
+                action = TurnAction(self.name, 'tax', target_player)
+            else:
+                action = TurnAction(self.name, 'error',target_player)
+                
+            #print("Attempt: ", action.summary)
             return action
         except:
-            print("Error")
+            print("Error 1a, Response: ", response.content)
 
     
     def lose_card(self, player_info, table_info):
         message = [self.rules, HumanMessage(f"You are losing a influence card. You may select which card to give up. Your hand: {player_info}, game state:{table_info}. Respond with only the name of the card to give up.")]
         response = self.llm.invoke(message)
+        #print(self.name, "Lost Card :", response.content)
         return response.content
             
     
     def exchange(self, player_info, table_info, cards_drawn):
-        message = [self.rules, HumanMessage(f"You are using an Ambassador to exchange cards. Your hand: {player_info}, game state: {table_info}. The cards you have drawn: {cards_drawn}. Choose which cards to keep and which to discard in accordance with the rules. Return only a JSON containing keep: python list of cards to keep, and discard: python list of cards to discard.")]
+        message = [self.rules, HumanMessage(f"You are using an Ambassador to exchange cards. Your hand: {player_info}, game state: {table_info}. The cards you have drawn: {cards_drawn}. Choose which cards to keep and which to discard in accordance with the rules. Return only a JSON containing keep: python list of cards to keep. The number of cards you keep must be the same as the number currently facedown.")]
         response = self.llm.invoke(message)
         try:
             json_exchange = json.loads(response.content)
-            print(json_exchange)
             keep = json_exchange['keep']
-            discard = json_exchange['discard']
-            return keep, discard
+            return keep
         except:
-            print("Error")
+            print("Error 2", response.content)
+            return player_info['facedown']
             
     
-    def game_update(self, player_info, table_info, action):
-        message = [self.rules, HumanMessage(f"An opponent is taking their turn and you need to decide if you want to block or challenge. Your hand: {player_info}, game state: {table_info}, Action Information - {action.summary}. Respond with only the string block, challenge, or none")]
+    def respond(self, player_info, table_info, action):
+        message = [self.rules, HumanMessage(f"An opponent is taking their turn and you need to decide if you want to block or challenge. If you do not want to block or challenge you may pass. Your hand: {player_info}, game state: {table_info}, Action Information - {action.summary}. Respond as a json with the 'action: 'block', 'challenge', or 'pass' and if you are blocking use 'claimed_card' : card name (capitalized).")]
         response = self.llm.invoke(message)
-        print(response)
-        resp = ResponseAction(self.name, action, response)
+       
+        # default response if LLM fails
+        resp = ResponseAction(self.name, "pass", None)
+
+        try:
+            json_resp = json.loads(response.content)
+            action_name = json_resp['action']
+            claimed_card = json_resp.get('claimed_card')
+            resp = ResponseAction(self.name, action_name, claimed_card)
+            # print("Responded: ", resp.summary)
+        except:
+            print("Error 3", response.content)
+            
         return resp
         
         
